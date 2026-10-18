@@ -1,0 +1,50 @@
+# 本仓库只发布 Skill 代码、资源和使用文档。
+# 本地任务产物、测试夹具和执行记录不提交。
+/output/
+/tests/
+test/
+tests/
+__tests__/
+test_*.py
+*_test.py
+*.test.*
+*.spec.*
+test_*.cjs
+/logs/
+/tmp/
+/temp/
+/docs/plans/
+/docs/superpowers/
+*.log
+
+# 本地备份及打包产物
+/backups/
+*.bak
+*.backup
+/ui-morph-motion*.zip
+
+# 本地依赖、缓存及测试报告
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+playwright-report/
+test-results/
+
+# 本地工具配置、凭据及系统杂项
+/.agents/
+/.codex/
+/.aws/
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db

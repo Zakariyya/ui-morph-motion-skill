@@ -32,11 +32,11 @@ python3 "$SKILL/scripts/render.py" render scene.html --out video.mp4 \
 # For deliberately silent work, replace --audio mixed.wav with --silent.
 ```
 
-Preview receipt binds HTML bytes, scene metadata and contact-sheet hash. It is not proof of visual inspection or a user-approval token. The caller inspects images before passing `--reviewed-preview`. Edit → regenerate/inspect preview. Existing MP4/WAV files are not overwritten; choose versioned names.
+Preview receipt binds HTML bytes, requested local dependency hashes, scene metadata and contact-sheet hash. New resources introduced at later timestamps must also be declared/preflighted and exercised before rendering. It is not proof of visual inspection or a user-approval token. The caller inspects images before passing `--reviewed-preview`. Edit → regenerate/inspect preview. Existing MP4/WAV files are not overwritten; choose versioned names.
 
 ## HTML contract
 
-One self-contained HTML: embed styles, scripts, SVG and fonts. No network-loaded fonts, random values, live video, external images or unresolved local dependencies. The renderer rejects non-inline asset requests and awaits font loading.
+Offline HTML package: inline or project-relative styles, scripts, images and fonts. No network dependencies, unseeded random values or live video. The renderer serves the HTML directory on loopback, blocks remote/escaping resources and awaits font loading plus window.ready. Cache decoded static assets. Video elements require deterministic awaited seeks. Full CJK font embedding is not the default; see visual-qa.md.
 
 ```js
 window.scene = {
@@ -55,16 +55,16 @@ Beats/review times are seconds in `[0,T)`. Canvas dimensions are positive even i
 
 `seek(t)` may be async but must complete DOM updates before returning a nonempty flat numeric probe covering all seam-critical geometry. A preview shell may use `requestAnimationFrame` ONLY to call `seek(elapsed % duration)`; it must be disabled by default during export. Viewer controls must stay outside the recorded canvas. The example uses a manual time slider; its mouse cursor is authored animation, not a functioning product.
 
-Inline `assets/motion.js` in scene HTML:
+Inline or copy `assets/motion.js` into the scene package:
 
 - `track(t, initial, [{t,value,omega?,damping?},...])`: sorted changes; sums `(newTarget - previousTarget) * step(t-changeTime)`. Never restart from rounded rendered values.
-- `release(dt,x0,v0,target,omega=26,damping=1)`: preserves release position AND velocity. The API default is critical damping; for the expressive visual default explicitly choose underdamping (see [expressive-motion.md](expressive-motion.md)). Preserve readability and settle before reading windows.
+- `release(dt,x0,v0,target,omega=26,damping=1)`: preserves release position AND velocity. The API default is critical damping; for an approved expressive direction explicitly choose underdamping (see [expressive-motion.md](expressive-motion.md)). Preserve readability and settle before reading windows.
 - `drag(t,{start,end,from,to,target})`: linear direct manipulation plus analytic release. Custom trajectories require their own position and derivative at release.
 - `smooth`: zero-velocity endpoint blending for authored cursor paths and deliberate loop closure.
 
 Keep the persistent shell separate from content layers with independent exit/enter windows. For liquid indicators, edges have different spring speeds/delays and positive width. During a drag the handle and cursor share a coordinate function; overscroll can stretch the track but must not arbitrarily lag the handle.
 
-Return early enough to settle or use periodic trajectories. Modulo alone hides endpoint discontinuities. Check `T-ε,0,+ε` and velocities for shell, camera, cursor, text and dragging state. `check` tolerances are 0.5 position units and 5 velocity units/s on probes (CSS px, radians, RGB 0..255 or unitless zoom). Numeric probes cover only returned values; inspect seam images too.
+Set `scene.loop=false` for nonlooping films (legacy default remains true). For loops, return early enough to settle or use periodic trajectories. Modulo alone hides endpoint discontinuities. Check `T-ε,0,+ε` and velocities for shell, camera, cursor, text and dragging state. `check` tolerances are 0.5 position units and 5 velocity units/s on probes (CSS px, radians, RGB 0..255 or unitless zoom). Numeric probes cover only returned values; inspect seam images too.
 
 ## Audio and sources
 
@@ -115,7 +115,7 @@ Screenshots stream directly to FFmpeg (no thousands of stored full-size frames).
 | Decoded MP4 report | Frames, size, FPS, timestamps | Readability or rhythm |
 | Visual review/playback | Inspected framing and transitions | Music licensing |
 
-## Default 28-beat proposal
+## Optional 28-beat example
 
 Example only; not already approved. Beat zero is time zero, 0.5 seconds per beat.
 
@@ -130,3 +130,7 @@ Example only; not already approved. Beat zero is time zero, 0.5 seconds per beat
 | 7 | 24–27 | Filter result → enter → toast → return/loop closure |
 
 Confirm exact words, sizes, cursor targets and audio events for the actual storyboard. Give the final return time to settle. If text requires more reading time, reduce events or agree a longer duration. Every beat having an event does not mean every beat needs a new component.
+
+## Extended QA
+
+The legacy preview/check CLI is an encoding check, not a complete visual Gate. Use [visual-qa.md](visual-qa.md) for trajectory-specific tolerances, readability, boundary scans, environment diagnosis and repair. The legacy loop seam tolerances remain for compatibility; interpret units and inspect actual frames.

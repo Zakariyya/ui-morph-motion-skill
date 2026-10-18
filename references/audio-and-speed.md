@@ -47,7 +47,7 @@ If the player duration is longer than the correctly decoded video, inspect strea
 
 ## Offer speed options
 
-At the first storyboard confirmation offer **1× / 2× / both** unless already selected. For the default scene explain 14 s versus 7 s, both at 60 fps, and shorter reading time in the fast version. Do not force a second approval after the user selects a variant. Do not always generate both by default.
+At the first storyboard confirmation offer **1× / 2× / both** unless already selected. For a 14 s proposal explain 14 s versus 7 s, both at 60 fps, and shorter reading time in the fast version. Do not force a second approval after the user selects a variant. Do not always generate both by default.
 
 For a selected factor `s`:
 

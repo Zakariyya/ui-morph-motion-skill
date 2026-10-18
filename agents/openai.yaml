@@ -1,4 +1,4 @@
 interface:
   display_name: "UI 变形动效短片"
-  short_description: "制作大幅形变、明显回弹与音乐卡点的 UI 视频，交付 MP4、可编辑 HTML 与逐拍预览"
+  short_description: "制作二维连续动效视频，支持真实时间轴渲染、视觉 QA、镜头与局部修复"
   default_prompt: "用 $ui-morph-motion 制作 UI 变形短片，同时保留可编辑 HTML；先确认状态、配色、最终声音方案和常速/2倍速/两版选项，再给我节拍分镜。"

@@ -9,6 +9,12 @@ import math
 from pathlib import Path
 import subprocess
 import tempfile
+import functools
+import threading
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+from urllib.parse import urlparse, unquote
+
+from browser_env import launch
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -45,24 +51,38 @@ class Scene:
     def __init__(self,path):
         self.path=Path(path).resolve()
         self.errors=[]
+        self.resources={}
+        self.server=None
 
     def __enter__(self):
         self.pw=sync_playwright().start()
         self.browser=None
         try:
-            self.browser=self.pw.chromium.launch(headless=True)
+            self.browser,self.launch_attempts=launch(self.pw)
+            class Handler(SimpleHTTPRequestHandler):
+                def log_message(self,*args): pass
+            self.server=ThreadingHTTPServer(("127.0.0.1",0),functools.partial(Handler,directory=str(self.path.parent)))
+            self.thread=threading.Thread(target=self.server.serve_forever,daemon=True)
+            self.thread.start()
+            self.origin=f"http://127.0.0.1:{self.server.server_port}"
             self.page=self.browser.new_page(viewport={'width':1440,'height':1440},device_scale_factor=1)
             self.page.on('pageerror',lambda error:self.errors.append(str(error)))
             self.page.on('console',lambda msg:self.errors.append(msg.text) if msg.type=='error' else None)
             def route(request):
                 url=request.request.url
-                if url==self.path.as_uri() or url.startswith(('data:','blob:')):
+                if url.startswith(('data:','blob:')):
                     request.continue_()
+                elif url.startswith(self.origin+'/'):
+                    local=(self.path.parent/unquote(urlparse(url).path).lstrip('/')).resolve()
+                    if local.is_relative_to(self.path.parent) and local.is_file():
+                        self.resources[str(local.relative_to(self.path.parent))]=digest(local)
+                        request.continue_()
+                    else:
+                        self.errors.append('Missing or escaping local asset: '+url);request.abort()
                 else:
-                    self.errors.append('Non-inline asset: '+url)
-                    request.abort()
+                    self.errors.append('Offline render blocked remote asset: '+url);request.abort()
             self.page.route('**/*',route)
-            self.page.goto(self.path.as_uri(),wait_until='load')
+            self.page.goto(self.origin+'/'+self.path.name,wait_until='load',timeout=15000)
             self.page.evaluate('async () => { await document.fonts.ready; await window.ready; }')
             self.meta=self.page.evaluate('window.scene')
             if not isinstance(self.meta,dict): raise ValueError('Define window.scene metadata')
@@ -86,6 +106,8 @@ class Scene:
     def __exit__(self,*args):
         if self.browser: self.browser.close()
         self.pw.stop()
+        if self.server:
+            self.server.shutdown();self.server.server_close()
 
     def at(self,t):
         state=self.page.evaluate('(t) => window.seek(t)',t)
@@ -112,12 +134,12 @@ def check_scene(scene,out):
         if scene.capture(times[i])!=original[i]: raise ValueError(f'Non-deterministic seek at {times[i]}')
     first=scene.capture(0)
     terminal=scene.capture(duration)
-    if first!=terminal: raise ValueError('seek(0) and seek(duration) must match exactly')
+    if scene.meta.get('loop',True) and first!=terminal: raise ValueError('seek(0) and seek(duration) must match exactly')
     epsilon=0.001
     s0=scene.at(0); sp=scene.at(epsilon); sm=scene.at(duration-epsilon)
     s2p=scene.at(2*epsilon); s2m=scene.at(duration-2*epsilon)
     errors={}
-    for key in s0:
+    for key in (s0 if scene.meta.get('loop',True) else {}):
         # Compare extrapolated boundary positions, not real travel across 2 ms.
         before=2*sm[key]-s2m[key]
         after=2*sp[key]-s2p[key]
@@ -131,7 +153,7 @@ def check_scene(scene,out):
     for name,t in [('first',0),('before-seam',duration-1/scene.meta['fps']),('after-seam',1/scene.meta['fps'])]:
         (out/(name+'.png')).write_bytes(scene.capture(t))
     report={'html_sha256':digest(scene.path),'metadata':scene.meta,'random_seek_equal':True,
-            'endpoint_equal':True,'seam_probes':errors,'browser_errors':scene.errors,
+            'endpoint_equal':first==terminal,'loop_checked':scene.meta.get('loop',True),'seam_probes':errors,'browser_errors':scene.errors,
             'visual_review_required':['text legibility','in-between morphs','cursor hit targets','camera framing','two consecutive loops'],
             'limits':'Numeric probes test supplied geometry only. No audio audition or aesthetic certification.'}
     dump(out/'check.json',report)
@@ -157,7 +179,7 @@ def preview(scene,out):
     sheet=Image.new('RGB',(280*4,310*math.ceil(len(tiles)/4)),'#f4f2ee')
     for i,tile in enumerate(tiles): sheet.paste(tile,(i%4*280,i//4*310))
     sheet.save(out/'contact-sheet.png')
-    receipt={'html_sha256':digest(scene.path),'metadata':scene.meta,'times':times,
+    receipt={'resources':scene.resources,'html_sha256':digest(scene.path),'metadata':scene.meta,'times':times,
              'contact_sheet_sha256':digest(out/'contact-sheet.png'),
              'meaning':'Generated preview for this version, NOT proof of human approval or visual review.'}
     dump(out/'receipt.json',receipt)
@@ -200,6 +222,8 @@ def render(scene,out,receipt,audio,silent):
     out=out.resolve()
     if out.exists(): raise FileExistsError(f'Refusing to overwrite {out}')
     proof=json.loads(receipt.read_text())
+    if any(not (scene.path.parent/name).is_file() or digest(scene.path.parent/name)!=sha for name,sha in proof.get('resources',{}).items()):
+        raise ValueError('Preview assets are stale; regenerate preview')
     if proof.get('html_sha256')!=digest(scene.path) or proof.get('metadata')!=scene.meta:
         raise ValueError('Preview is stale; regenerate and inspect it after editing the scene')
     if digest(receipt.parent/'contact-sheet.png')!=proof['contact_sheet_sha256']:
@@ -210,7 +234,7 @@ def render(scene,out,receipt,audio,silent):
     if audio:
         pcm=decode(audio)
         if abs(len(pcm)-round(duration*48000))>1: raise ValueError('Audio must match video duration exactly; use media.py mix')
-        audio_report={'mode':'audio','source':str(audio.resolve()),'samples':len(pcm),
+        audio_report={'mode':'audio','source':str(audio.resolve()),'source_sha256':digest(audio),'samples':len(pcm),
                       'seam_sample_jump':np.abs(pcm[0]-pcm[-1]).tolist(),'audition_required':True}
     out.parent.mkdir(parents=True,exist_ok=True)
     check_scene(scene,out.parent/(out.stem+'-checks'))
@@ -239,6 +263,8 @@ def render(scene,out,receipt,audio,silent):
                 details=log.read().decode(errors='replace')
                 if details: print(details,flush=True)
                 raise
+        if proof.get('resources') is not None and scene.resources!=proof['resources']:
+            raise ValueError('Render discovered changed or unpreviewed assets; include their times in preview')
         verification=verify_video(temp,frames,scene.meta['width'],scene.meta['height'],fps)
         verification['container_duration']=verify_container(scene.browser,temp,duration)
         if audio:
@@ -248,7 +274,7 @@ def render(scene,out,receipt,audio,silent):
                                 note='AAC decoder padding is reported; gapless player behavior needs audition.')
         if out.exists(): raise FileExistsError(out)
         temp.rename(out)
-    report={'output':str(out),'html_sha256':digest(scene.path),'input_samples':frames*subframes,
+    report={'kind':'Encoded Video','status':'NEEDS_REVIEW','source':str(scene.path),'source_sha256':digest(scene.path),'resources':scene.resources,'output':str(out),'output_sha256':digest(out),'html_sha256':digest(scene.path),'input_samples':frames*subframes,
             'subframes':subframes,'sampling':'midpoints of four equal subintervals per frame, no terminal duplicate',
             'video':verification,'audio':audio_report,'browser_errors':scene.errors,
             'preview_receipt':str(receipt.resolve()),'visual_review':'caller must inspect previews and final playback'}
@@ -271,7 +297,7 @@ def main():
         encoder=ffmpeg_exe()
         version=subprocess.run([encoder,'-version'],capture_output=True,text=True,check=True).stdout.splitlines()[0]
         with sync_playwright() as pw:
-            browser=pw.chromium.launch(headless=True)
+            browser,_=launch(pw)
             result={'ffmpeg':encoder,'version':version,'chromium':browser.version}
             browser.close()
     else:
