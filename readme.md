@@ -10,5 +10,8 @@
 
 灵感来自 [@twoclipping](https://x.com/twoclipping) 的 [帖子](https://x.com/twoclipping/status/2103273003555402193)
 
+## 演示视频
 
+[查看与下载演示视频](https://github.com/Zakariyya/ui-morph-motion-skill/releases/tag/demo-video)
 
+视频保存在 GitHub Release 附件中，克隆仓库时无需下载视频。

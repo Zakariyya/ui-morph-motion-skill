@@ -22,6 +22,7 @@ test_*.cjs
 *.bak
 *.backup
 /ui-morph-motion*.zip
+/ui演示.mp4
 
 # 本地依赖、缓存及测试报告
 node_modules/
